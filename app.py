@@ -64,6 +64,14 @@ def init_db():
         role TEXT NOT NULL DEFAULT 'user'
     )"""
     )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS sessions_map (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        waha_session_name TEXT NOT NULL,
+        UNIQUE(user_id, waha_session_name)
+    )"""
+    )
     if ADMIN_PASSWORD:
         try:
             db.execute(
@@ -101,6 +109,20 @@ def admin_required(f):
         return f(*a, **kw)
 
     return dec
+
+
+def is_admin() -> bool:
+    return session.get("role") == "admin"
+
+
+def can_access_session(name: str) -> bool:
+    if is_admin():
+        return True
+    row = get_db().execute(
+        "SELECT 1 FROM sessions_map WHERE user_id=? AND waha_session_name=?",
+        (session.get("user_id"), name),
+    ).fetchone()
+    return bool(row)
 
 
 async def awaha(method, path, json_data=None):
@@ -182,6 +204,15 @@ def index():
     except Exception as e:
         flash(f"Gagal konek WAHA: {e}", "danger")
     sessions = json.loads(data) if isinstance(data, str) else []
+    if not is_admin():
+        owned = {
+            row["waha_session_name"]
+            for row in get_db().execute(
+                "SELECT waha_session_name FROM sessions_map WHERE user_id=?",
+                (session["user_id"],),
+            ).fetchall()
+        }
+        sessions = [s for s in sessions if s.get("name") in owned]
     return render_template_string(
         INDEX_TPL,
         username=session.get("username"),
@@ -206,6 +237,12 @@ def session_start():
         return redirect(url_for("index"))
     try:
         st, _ = waha("POST", "/api/sessions/start", {"name": name, "config": {"webhook_url": ""}})
+        if st in (200, 201):
+            get_db().execute(
+                "INSERT OR IGNORE INTO sessions_map (user_id, waha_session_name) VALUES (?,?)",
+                (session["user_id"], name),
+            )
+            get_db().commit()
         flash(
             f"Session '{name}' started. Scan QR di halaman sessions." if st in (200, 201) else f"Gagal start session (HTTP {st})",
             "success" if st in (200, 201) else "danger",
@@ -219,6 +256,9 @@ def session_start():
 @login_required
 def session_stop():
     name = request.form.get("name", "")
+    if not can_access_session(name):
+        flash("Akses session ditolak", "danger")
+        return redirect(url_for("index"))
     try:
         waha("DELETE", f"/api/sessions/{name}/stop")
         flash(f"Session '{name}' stopped", "success")
@@ -230,6 +270,8 @@ def session_stop():
 @app.route("/session/qr/<name>")
 @login_required
 def session_qr(name):
+    if not can_access_session(name):
+        return {"error": "Akses session ditolak"}, 403
     try:
         st, data = waha("GET", f"/api/sessions/{name}/qr")
         return data, int(st), {"Content-Type": "application/json"}
@@ -241,6 +283,9 @@ def session_qr(name):
 @login_required
 def session_logout():
     name = request.form.get("name", "")
+    if not can_access_session(name):
+        flash("Akses session ditolak", "danger")
+        return redirect(url_for("index"))
     try:
         waha("DELETE", f"/api/sessions/{name}/logout")
         flash(f"Session '{name}' logged out", "info")
