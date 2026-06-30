@@ -222,6 +222,16 @@ def index():
     )
 
 
+@app.route("/docs")
+@login_required
+def docs():
+    return render_template_string(
+        DOCS_TPL,
+        username=session.get("username"),
+        role=session.get("role"),
+    )
+
+
 @app.route("/users")
 @admin_required
 def users_list():
@@ -448,6 +458,9 @@ BASE = """<!doctype html>
   <title>WAHA Dashboard</title>
   <base href="{{ app_root }}/">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<script>
+(()=>{class TinyModal{constructor(t){this.el=t}show(){this.el.classList.add('show'),document.body.classList.add('modal-open'),this.el.style.display='block'}hide(){this.el.classList.remove('show'),this.el.style.display='none',document.body.classList.remove('modal-open')}}window.bootstrap={Modal:TinyModal};function onClick(t){const e=t.target.closest('[data-bs-toggle="modal"]');if(e){const t=document.querySelector(e.getAttribute('data-bs-target'));t&&new TinyModal(t).show();return}const n=t.target.closest('[data-bs-dismiss="modal"]');if(n){n.closest('.modal')&&new TinyModal(n.closest('.modal')).hide();return}const o=t.target.closest('[data-bs-dismiss="toast"]');o&&(o.closest('.toast')&&o.closest('.toast').remove())}document.addEventListener('click',onClick),document.querySelectorAll('.modal').forEach(t=>{t.addEventListener('click',function(t){t.target===this&&new TinyModal(this).hide()})}),document.addEventListener('keydown',t=>{if(t.key==='Escape'){const e=document.querySelector('.modal.show');e&&new TinyModal(e).hide()}}),document.querySelectorAll('.toast').forEach(t=>setTimeout(()=>t.remove(),5e3))})();
+</script>
   <style>
     :root {
       --bg: #f8fafc;
@@ -633,10 +646,13 @@ BASE = """<!doctype html>
         {% if role == 'admin' %}
         <li class="nav-item"><a class="nav-link" href="{{ app_root }}/users">Users</a></li>
         {% endif %}
+        <li class="nav-item"><a class="nav-link" href="{{ app_root }}/docs">Docs</a></li>
       </ul>
       {% if username %}
-      <span class="text-light-emphasis me-3"><i class="bi bi-person-circle"></i> {{ username }}</span>
-      <a href="{{ app_root }}/logout" class="btn btn-outline-secondary btn-sm">Logout</a>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span class="text-light-emphasis"><i class="bi bi-person-circle"></i> {{ username }}</span>
+        <a href="{{ app_root }}/logout" class="btn btn-outline-secondary btn-sm">Logout</a>
+      </div>
       {% endif %}
     </div>
   </div>
@@ -656,8 +672,9 @@ BASE = """<!doctype html>
 {% endwith %}
 {% block content %}{% endblock %}
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script>document.querySelectorAll('.toast').forEach(t => setTimeout(() => t.remove(), 5000))</script>
+<script>
+const APP_ROOT = {{ app_root|tojson }};
+
 </body>
 </html>"""
 
@@ -831,6 +848,45 @@ if (AUTO_QR) {
   if (btn) setTimeout(() => btn.click(), 250);
 }
 </script>
+{% endblock %}""")
+
+DOCS_TPL = BASE.replace("{% block content %}{% endblock %}", """{% block content %}
+<h4 class="mb-3"><i class="bi bi-journal-text"></i> Dokumentasi</h4>
+<div class="card p-4 mb-3">
+  <h5>Panduan penggunaan dashboard</h5>
+  <details class="mt-3 mb-2"><summary class="fw-semibold" style="cursor:pointer">1. Start session baru</summary><div class="mt-2 small" style="color:#475569; line-height:1.7">Klik <strong>Start New</strong>, isi nama session, lalu submit. Setelah session dibuat, status biasanya berubah jadi <strong>SCAN_QR_CODE</strong>.</div></details>
+  <details class="mb-2"><summary class="fw-semibold" style="cursor:pointer">2. Hubungkan WhatsApp</summary><div class="mt-2 small" style="color:#475569; line-height:1.7">Klik tombol <strong>QR</strong> pada session. Scan QR dari aplikasi WhatsApp. Kalau server kasih pairing code, copy code lalu masukkan dari HP.</div></details>
+  <details class="mb-2"><summary class="fw-semibold" style="cursor:pointer">3. Arti status session</summary><div class="mt-2 small" style="color:#475569; line-height:1.7"><strong>WORKING</strong> = sudah aktif. <strong>SCAN_QR_CODE</strong> = menunggu scan. <strong>STOPPED</strong> = dihentikan. <strong>FAILED</strong> = gagal start atau gagal konek.</div></details>
+  <details><summary class="fw-semibold" style="cursor:pointer">4. Tombol aksi</summary><div class="mt-2 small" style="color:#475569; line-height:1.7"><strong>Start</strong> menyalakan session mati. <strong>Stop</strong> menghentikan session aktif. <strong>Logout</strong> memutuskan koneksi WhatsApp dari perangkat itu.</div></details>
+</div>
+<div class="card p-4 mb-3">
+  <h5>Dokumentasi API dashboard</h5>
+  <p class="small" style="color:#475569">Endpoint di bawah milik dashboard custom ini. Cocok buat integrasi UI atau polling status dari browser. Mayoritas butuh login session browser.</p>
+  <div class="table-responsive">
+    <table class="table table-striped mb-0 align-middle">
+      <thead><tr><th>Method</th><th>Path</th><th>Fungsi</th><th>Output</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root or '' }}/</code></td><td>Halaman sessions</td><td>HTML</td></tr>
+        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root }}/docs</code></td><td>Halaman dokumentasi</td><td>HTML</td></tr>
+        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root }}/users</code></td><td>Manajemen user admin</td><td>HTML</td></tr>
+        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root }}/session/qr/&lt;name&gt;</code></td><td>Ambil QR / pairing code session</td><td>JSON <code>{"qr":"data:image/..."}</code> atau <code>{"code":"123-456"}</code></td></tr>
+        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root }}/session/status/&lt;name&gt;</code></td><td>Cek status 1 session</td><td>JSON <code>{"status":"WORKING"}</code></td></tr>
+        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/session/start</code></td><td>Start session baru / start ulang</td><td>Redirect + flash message</td></tr>
+        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/session/stop</code></td><td>Stop session aktif</td><td>Redirect + flash message</td></tr>
+        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/session/logout</code></td><td>Logout session dari WhatsApp</td><td>Redirect + flash message</td></tr>
+        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/login</code></td><td>Login user</td><td>Session cookie</td></tr>
+        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/register</code></td><td>Daftar user baru</td><td>Redirect</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+<div class="card p-4">
+  <h5>Contoh alur</h5>
+  <div class="small" style="color:#475569; line-height:1.7">
+    <p><strong>Flow connect session:</strong> Start session → buka QR → scan QR / pairing code → polling <code>/session/status/&lt;name&gt;</code> sampai <code>WORKING</code>.</p>
+    <p><strong>Catatan auth:</strong> Endpoint dashboard pakai session login browser. Jadi paling gampang dipakai dari browser yang sudah login, bukan dari curl anonim.</p>
+  </div>
+</div>
 {% endblock %}""")
 
 USERS_TPL = BASE.replace("{% block content %}{% endblock %}", """{% block content %}
