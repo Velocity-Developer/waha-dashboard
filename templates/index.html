@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+<h4 class="m-0"><i class="bi bi-phone"></i> Sessions</h4>
+<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#startModal"><i class="bi bi-plus-lg"></i> Start New</button>
+</div>
+<div class="card p-0">
+{% if sessions %}
+<div class="table-responsive">
+<table class="table table-striped mb-0 align-middle">
+<thead><tr><th>Session</th><th>Nomor</th><th>Status</th><th>Token</th><th style="width:1%">Aksi</th></tr></thead>
+<tbody>
+{% for s in sessions %}
+<tr>
+<td><strong>{{ s.name }}</strong></td>
+<td>{% if s.me and s.me.id %}{{ s.me.id }}{% elif s.me %}{{ s.me }}{% else %}-{% endif %}</td>
+<td><span class="badge {% if s.status == 'WORKING' %}bg-success{% elif s.status in ['STOPPED','FAILED'] %}bg-danger{% else %}bg-warning{% endif %}">{{ s.status }}</span></td>
+<td style="min-width:320px;"><div style="display:flex;align-items:center;gap:8px;"><input id="token-{{ loop.index }}" class="form-control form-control-sm" type="password" value="{{ api_key }}" readonly><button type="button" class="btn btn-outline-secondary btn-sm" title="Preview token" aria-label="Preview token" onclick="toggleToken('token-{{ loop.index }}', this)"><i class="bi bi-eye"></i></button><button type="button" class="btn btn-outline-primary btn-sm" title="Copy token" aria-label="Copy token" onclick="copyToken('token-{{ loop.index }}')"><i class="bi bi-clipboard"></i></button><form method="post" action="{{ app_root }}/me/api-key/regenerate" style="margin:0;" onsubmit="return confirm('Generate token baru? Token lama akan tidak berlaku.')"><input type="hidden" name="return_to" value="index"><button class="btn btn-outline-danger btn-sm" title="Generate new token" aria-label="Generate new token"><i class="bi bi-arrow-repeat"></i></button></form></div></td>
+<td style="white-space:nowrap;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;"><a href="{{ app_root }}/docs?session={{ s.name|urlencode }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-journal-text"></i> Docs</a>{% if s.status == 'WORKING' %}<form method="post" action="{{ app_root }}/session/stop" onsubmit="return confirm('Stop {{ s.name }}?')" style="margin:0;"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-warning btn-sm"><i class="bi bi-stop-circle"></i> Stop</button></form><form method="post" action="{{ app_root }}/session/logout" onsubmit="return confirm('Logout {{ s.name }}?')" style="margin:0;"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right"></i> Logout</button></form>{% elif s.status == 'SCAN_QR_CODE' %}<button class="btn btn-outline-info btn-sm qr-btn" data-name="{{ s.name }}"><i class="bi bi-qr-code"></i> QR</button><form method="post" action="{{ app_root }}/session/stop" onsubmit="return confirm('Stop {{ s.name }}?')" style="margin:0;"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-warning btn-sm"><i class="bi bi-stop-circle"></i> Stop</button></form>{% elif s.status in ['STOPPED','FAILED'] %}<form method="post" action="{{ app_root }}/session/start" style="margin:0;"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-success btn-sm"><i class="bi bi-play-circle"></i> Start</button></form>{% endif %}</div></td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}<div class="p-5 text-center"><i class="bi bi-inbox display-6"></i><p class="mt-2">Belum ada session. Klik <strong>Start New</strong>.</p></div>{% endif %}
+</div>
+<div class="modal fade" id="startModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ app_root }}/session/start"><div class="modal-header border-secondary"><h5 class="modal-title">Start New Session</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><label class="form-label">Nama Session</label><input name="name" class="form-control" placeholder="misal: bisnis_1" required></div><div class="modal-footer border-secondary"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button><button type="submit" class="btn btn-primary">Start</button></div></form></div></div></div>
+<div class="modal fade" id="qrModal" tabindex="-1"><div class="modal-dialog modal-sm"><div class="modal-content"><div class="modal-header border-secondary"><h5 class="modal-title">QR Code</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body text-center" id="qrBody"><div class="spinner-border"></div><p class="mt-2">Loading QR...</p></div></div></div></div>
+{% endblock %}
+{% block scripts %}<script>const AUTO_QR={{ auto_qr|tojson }};</script><script src="{{ app_root }}/static/app.js"></script>{% endblock %}
