@@ -20,3 +20,10 @@ async function loadQr(name,firstLoad=false){qrActiveName=name;if(firstLoad)setQr
 document.querySelectorAll('.qr-btn').forEach(btn=>btn.addEventListener('click',()=>{if(!qrModal)return;qrModal.show();loadQr(btn.dataset.name,true)}));if(qrModalEl)qrModalEl.addEventListener('hidden.bs.modal',()=>{stopQrPolling();qrActiveName='';setQrBody('<div class="spinner-border"></div><p class="mt-2">Loading QR...</p>')});if(typeof AUTO_QR!=='undefined'&&AUTO_QR){const btn=document.querySelector(`.qr-btn[data-name="${AUTO_QR}"]`);if(btn)setTimeout(()=>btn.click(),250)}
 document.querySelectorAll('.edit-user-btn').forEach(btn=>btn.addEventListener('click',()=>{const a=id=>document.getElementById(id);if(a('edit_user_id'))a('edit_user_id').value=btn.dataset.id;if(a('edit_username'))a('edit_username').value=btn.dataset.username;if(a('edit_role'))a('edit_role').value=btn.dataset.role;const pwd=document.querySelector('#editUserModal .password-input');if(pwd)pwd.value=''}));
 document.querySelectorAll('.toggle-password').forEach(btn=>btn.addEventListener('click',()=>{const input=btn.closest('.input-group').querySelector('.password-input');const icon=btn.querySelector('i');const show=input.type==='password';input.type=show?'text':'password';icon.className=show?'bi bi-eye-slash':'bi bi-eye'}));
+const confirmModalEl=document.getElementById('confirmModal');
+const confirmMessageEl=document.getElementById('confirmMessage');
+const confirmSubmitBtn=document.getElementById('confirmSubmitBtn');
+const confirmModal=confirmModalEl?new bootstrap.Modal(confirmModalEl):null;
+let confirmTargetForm=null;
+document.querySelectorAll('form.js-confirm').forEach(form=>form.addEventListener('submit',e=>{e.preventDefault();confirmTargetForm=form;if(confirmMessageEl)confirmMessageEl.textContent=form.dataset.confirm||'Lanjut?';if(confirmModal)confirmModal.show();else form.submit()}));
+if(confirmSubmitBtn)confirmSubmitBtn.addEventListener('click',()=>{if(confirmModal)confirmModal.hide();if(confirmTargetForm){const form=confirmTargetForm;confirmTargetForm=null;form.submit();}});
