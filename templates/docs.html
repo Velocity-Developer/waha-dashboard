@@ -52,7 +52,8 @@
 
 <div class="card p-4 mb-3">
   <h5>Test kirim pesan</h5>
-  <form id="testSendForm" data-api-key="{{ api_key }}" action="{{ gateway_base }}/gateway/{{ selected_session }}/send-text">
+  <form id="testSendForm" action="{{ app_root }}/docs/test-send">
+    <input type="hidden" name="session_name" value="{{ selected_session }}">
     <div class="row g-3">
       <div class="col-md-4">
         <label class="form-label">Nomor</label>
@@ -101,15 +102,25 @@ document.addEventListener('submit', async (e) => {
   e.preventDefault();
   const res = await fetch(form.action, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Api-Key': form.dataset.apiKey },
-    body: JSON.stringify({ chatId: form.chatId.value, text: form.text.value, api_key: form.dataset.apiKey })
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ session_name: form.session_name.value, chatId: form.chatId.value, text: form.text.value })
   });
   const text = await res.text();
   let kind = res.ok ? 'success' : 'danger';
   let msg = text;
   try {
     const data = JSON.parse(text);
-    msg = data.ok ? 'Pesan terkirim' : (data.error || text);
+    if (data && data.fromMe) {
+      msg = 'Pesan terkirim';
+      kind = 'success';
+    } else if (data && data.body) {
+      msg = `Pesan terkirim: ${data.body}`;
+      kind = 'success';
+    } else if (data && data.ok) {
+      msg = 'Pesan terkirim';
+    } else {
+      msg = data.error || text;
+    }
   } catch (_) {}
   docsToast(msg, kind);
 });
