@@ -50,21 +50,19 @@
   </div>
 </div>
 
-<div class="card p-4 mb-3">
-  <h5>Test kirim pesan</h5>
-  <form id="testSendForm" action="{{ app_root }}/docs/test-send">
+<div class="card test-send-card mb-3">
+  <h5 class="mb-3">Test kirim pesan</h5>
+  <form id="testSendForm" class="test-send-form" action="{{ app_root }}/docs/test-send">
     <input type="hidden" name="session_name" value="{{ selected_session }}">
-    <div class="row g-3">
-      <div class="col-md-4">
-        <label class="form-label">Nomor</label>
-        <input name="chatId" class="form-control" placeholder="62812xxxx@c.us" required>
-      </div>
-      <div class="col-md-8">
-        <label class="form-label">Isi pesan</label>
-        <input name="text" class="form-control" placeholder="Halo dari gateway" required>
-      </div>
+    <div class="field">
+      <label class="form-label">Nomor</label>
+      <input name="chatId" class="form-control" placeholder="62812xxxx@c.us" required>
     </div>
-    <div class="mt-3">
+    <div class="field">
+      <label class="form-label">Isi pesan</label>
+      <textarea name="text" class="form-control" placeholder="Halo dari gateway" required></textarea>
+    </div>
+    <div class="btn-row">
       <button class="btn btn-primary">Kirim</button>
     </div>
   </form>

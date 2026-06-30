@@ -1,7 +1,5 @@
 import json
 import secrets
-import urllib.error
-import urllib.request
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
@@ -25,22 +23,19 @@ def index():
         flash(f"Gagal konek WAHA: {e}", "danger")
     sessions = json.loads(data) if isinstance(data, str) else []
     if not is_admin():
-        owned = {
-            row["waha_session_name"]
-            for row in get_db().execute(
-                "SELECT waha_session_name FROM sessions_map WHERE user_id=?",
-                (session["user_id"],),
-            ).fetchall()
-        }
+        owned = {row["waha_session_name"] for row in get_db().execute("SELECT waha_session_name FROM sessions_map WHERE user_id=?", (session["user_id"],)).fetchall()}
         sessions = [s for s in sessions if s.get("name") in owned]
-    return render_template(
-        "index.html",
-        username=session.get("username"),
-        role=session.get("role"),
-        sessions=sessions,
-        auto_qr=request.args.get("qr", ""),
-        api_key=(user["api_key"] if user else ""),
-    )
+    return render_template("index.html", username=session.get("username"), role=session.get("role"), sessions=sessions, auto_qr=request.args.get("qr", ""), api_key=(user["api_key"] if user else ""))
+
+
+@bp.route("/logs/<session_name>")
+@login_required
+def logs(session_name):
+    if not can_access_session(session_name):
+        flash("Akses session ditolak", "danger")
+        return redirect(url_for("dashboard.index"))
+    rows = get_db().execute("SELECT event_type, payload, created_at FROM gateway_events WHERE session_name=? ORDER BY id DESC LIMIT 50", (session_name,)).fetchall()
+    return render_template("logs.html", username=session.get("username"), role=session.get("role"), session_name=session_name, rows=rows)
 
 
 @bp.route("/docs")
@@ -54,14 +49,7 @@ def docs():
     if user:
         ensure_user_api_key(user["id"])
         user = current_user()
-    return render_template(
-        "docs.html",
-        username=session.get("username"),
-        role=session.get("role"),
-        selected_session=session_name,
-        api_key=(user["api_key"] if user else ""),
-        gateway_base=public_base_url(),
-    )
+    return render_template("docs.html", username=session.get("username"), role=session.get("role"), selected_session=session_name, api_key=(user["api_key"] if user else ""), gateway_base=public_base_url())
 
 
 @bp.route("/docs/test-send", methods=["POST"])
@@ -109,15 +97,9 @@ def session_start():
         webhook_url = f"{public_base_url()}/gateway/webhook/{name}?token={api_key}"
         st, _ = waha("POST", "/api/sessions/start", {"name": name, "config": {"webhook_url": webhook_url}})
         if st in (200, 201):
-            get_db().execute(
-                "INSERT OR IGNORE INTO sessions_map (user_id, waha_session_name) VALUES (?,?)",
-                (session["user_id"], name),
-            )
+            get_db().execute("INSERT OR IGNORE INTO sessions_map (user_id, waha_session_name) VALUES (?,?)", (session["user_id"], name))
             get_db().commit()
-        flash(
-            f"Session '{name}' started. QR akan dibuka otomatis." if st in (200, 201) else f"Gagal start session (HTTP {st})",
-            "success" if st in (200, 201) else "danger",
-        )
+        flash(f"Session '{name}' started. QR akan dibuka otomatis." if st in (200, 201) else f"Gagal start session (HTTP {st})", "success" if st in (200, 201) else "danger")
         if st in (200, 201):
             return redirect(url_for("dashboard.index", qr=name))
     except Exception as e:

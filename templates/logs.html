@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="m-0"><i class="bi bi-journal-richtext"></i> Logs — {{ session_name }}</h4>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ app_root }}/"><i class="bi bi-arrow-left"></i> Back</a>
+</div>
+<div class="card p-0">
+  {% if rows %}
+  <div class="table-responsive desktop-fit">
+    <table class="table table-striped mb-0 align-middle">
+      <thead><tr><th>Waktu</th><th>Tipe</th><th>Payload</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td style="width:180px">{{ row.created_at }}</td>
+          <td style="width:140px"><span class="badge bg-secondary">{{ row.event_type }}</span></td>
+          <td><pre class="m-0" style="white-space:pre-wrap;word-break:break-word;max-width:100%">{{ row.payload }}</pre></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-5 text-center text-secondary">Belum ada logs.</div>
+  {% endif %}
+</div>
+{% endblock %}
