@@ -61,7 +61,8 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user'
+        role TEXT NOT NULL DEFAULT 'user',
+        api_key TEXT UNIQUE
     )"""
     )
     db.execute(
@@ -72,16 +73,71 @@ def init_db():
         UNIQUE(user_id, waha_session_name)
     )"""
     )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS gateway_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        session_name TEXT NOT NULL,
+        event_type TEXT NOT NULL DEFAULT 'message',
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )"""
+    )
+    cols = {row[1] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    if "api_key" not in cols:
+        db.execute("ALTER TABLE users ADD COLUMN api_key TEXT")
     if ADMIN_PASSWORD:
         try:
             db.execute(
-                "INSERT INTO users (username, password_hash, role) VALUES (?,?,?)",
-                (ADMIN_USERNAME, hash_password(ADMIN_PASSWORD), "admin"),
+                "INSERT INTO users (username, password_hash, role, api_key) VALUES (?,?,?,?)",
+                (ADMIN_USERNAME, hash_password(ADMIN_PASSWORD), "admin", secrets.token_hex(16)),
             )
         except sqlite3.IntegrityError:
             pass
+    missing_api_key_ids = [row[0] for row in db.execute("SELECT id FROM users WHERE api_key IS NULL OR api_key='' ").fetchall()]
+    for user_id in missing_api_key_ids:
+        db.execute("UPDATE users SET api_key=? WHERE id=?", (secrets.token_hex(16), user_id))
     db.commit()
     db.close()
+
+
+def current_user():
+    if not session.get("user_id"):
+        return None
+    return get_db().execute(
+        "SELECT id, username, role, api_key FROM users WHERE id=?",
+        (session["user_id"],),
+    ).fetchone()
+
+
+def ensure_user_api_key(user_id: int) -> str:
+    row = get_db().execute("SELECT api_key FROM users WHERE id=?", (user_id,)).fetchone()
+    if row and row["api_key"]:
+        return row["api_key"]
+    api_key = secrets.token_hex(16)
+    get_db().execute("UPDATE users SET api_key=? WHERE id=?", (api_key, user_id))
+    get_db().commit()
+    return api_key
+
+
+def public_base_url() -> str:
+    root = request.url_root.rstrip("/")
+    if APP_ROOT and root.endswith(APP_ROOT):
+        return root
+    if APP_ROOT:
+        return request.host_url.rstrip("/") + APP_ROOT
+    return root
+
+
+def gateway_owner(session_name: str, api_key: str):
+    return get_db().execute(
+        """SELECT u.id, u.username, u.role, u.api_key
+        FROM users u
+        JOIN sessions_map sm ON sm.user_id = u.id
+        WHERE sm.waha_session_name=? AND u.api_key=?
+        LIMIT 1""",
+        (session_name, api_key),
+    ).fetchone()
 
 
 init_db()
@@ -199,6 +255,10 @@ def register():
 @login_required
 def index():
     data = "[]"
+    user = current_user()
+    if user:
+        ensure_user_api_key(user["id"])
+        user = current_user()
     try:
         _, data = waha("GET", "/api/sessions")
     except Exception as e:
@@ -219,17 +279,116 @@ def index():
         role=session.get("role"),
         sessions=sessions,
         auto_qr=request.args.get("qr", ""),
+        api_key=(user["api_key"] if user else ""),
     )
 
 
 @app.route("/docs")
 @login_required
 def docs():
+    user = current_user()
+    session_name = request.args.get("session", "").strip()
+    if session_name and not can_access_session(session_name):
+        flash("Akses session ditolak", "danger")
+        return redirect(url_for("docs"))
+    if user:
+        ensure_user_api_key(user["id"])
+        user = current_user()
+    gateway_base = public_base_url()
     return render_template_string(
         DOCS_TPL,
         username=session.get("username"),
         role=session.get("role"),
+        selected_session=session_name,
+        api_key=(user["api_key"] if user else ""),
+        gateway_base=gateway_base,
     )
+
+
+@app.route("/me/api-key/regenerate", methods=["POST"])
+@login_required
+def api_key_regenerate():
+    api_key = secrets.token_hex(16)
+    get_db().execute("UPDATE users SET api_key=? WHERE id=?", (api_key, session["user_id"]))
+    get_db().commit()
+    flash("API key baru berhasil dibuat", "success")
+    session_name = request.form.get("session_name", "").strip()
+    return_to = request.form.get("return_to", "docs").strip()
+    if return_to == "index":
+        return redirect(url_for("index"))
+    return redirect(url_for("docs", session=session_name) if session_name else url_for("docs"))
+
+
+@app.route("/gateway/webhook/<session_name>", methods=["GET", "POST"])
+def gateway_webhook(session_name):
+    api_key = request.args.get("token", "").strip()
+    owner = gateway_owner(session_name, api_key)
+    if not owner:
+        return {"error": "token invalid"}, 403
+    payload = request.get_data(as_text=True) or "{}"
+    event_type = "message"
+    try:
+        parsed = json.loads(payload) if payload else {}
+        event_type = parsed.get("event") or parsed.get("eventType") or parsed.get("type") or "message"
+    except Exception:
+        parsed = None
+    get_db().execute(
+        "INSERT INTO gateway_events (user_id, session_name, event_type, payload) VALUES (?,?,?,?)",
+        (owner["id"], session_name, event_type, payload if parsed is not None else json.dumps({"raw": payload})),
+    )
+    get_db().commit()
+    return {"ok": True}
+
+
+@app.route("/gateway/<session_name>/status")
+def gateway_status(session_name):
+    api_key = request.headers.get("X-Api-Key", "") or request.args.get("api_key", "")
+    owner = gateway_owner(session_name, api_key)
+    if not owner:
+        return {"error": "api key invalid"}, 403
+    try:
+        st, data = waha("GET", f"/api/sessions/{session_name}")
+        return data, int(st), {"Content-Type": "application/json"}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/gateway/<session_name>/send-text", methods=["POST"])
+def gateway_send_text(session_name):
+    api_key = request.headers.get("X-Api-Key", "") or request.args.get("api_key", "")
+    owner = gateway_owner(session_name, api_key)
+    if not owner:
+        return {"error": "api key invalid"}, 403
+    payload = request.get_json(silent=True) or request.form.to_dict()
+    chat_id = (payload.get("chatId") or payload.get("to") or "").strip()
+    text = (payload.get("text") or payload.get("message") or "").strip()
+    if not chat_id or not text:
+        return {"error": "chatId/to dan text/message wajib diisi"}, 400
+    try:
+        st, data = waha("POST", f"/api/sendText", {"session": session_name, "chatId": chat_id, "text": text})
+        return data, int(st), {"Content-Type": "application/json"}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/gateway/<session_name>/events")
+def gateway_events(session_name):
+    api_key = request.headers.get("X-Api-Key", "") or request.args.get("api_key", "")
+    owner = gateway_owner(session_name, api_key)
+    if not owner:
+        return {"error": "api key invalid"}, 403
+    limit = min(max(request.args.get("limit", 20, type=int), 1), 100)
+    rows = get_db().execute(
+        "SELECT event_type, payload, created_at FROM gateway_events WHERE user_id=? AND session_name=? ORDER BY id DESC LIMIT ?",
+        (owner["id"], session_name, limit),
+    ).fetchall()
+    return {
+        "session": session_name,
+        "items": [
+            {"event_type": row["event_type"], "created_at": row["created_at"], "payload": json.loads(row["payload"])}
+            for row in rows
+        ],
+    }
 
 
 @app.route("/users")
@@ -371,7 +530,9 @@ def session_start():
         flash("Nama session wajib diisi", "danger")
         return redirect(url_for("index"))
     try:
-        st, _ = waha("POST", "/api/sessions/start", {"name": name, "config": {"webhook_url": ""}})
+        api_key = ensure_user_api_key(session["user_id"])
+        webhook_url = f"{public_base_url()}/gateway/webhook/{name}?token={api_key}"
+        st, _ = waha("POST", "/api/sessions/start", {"name": name, "config": {"webhook_url": webhook_url}})
         if st in (200, 201):
             get_db().execute(
                 "INSERT OR IGNORE INTO sessions_map (user_id, waha_session_name) VALUES (?,?)",
@@ -707,25 +868,50 @@ INDEX_TPL = BASE.replace("{% block content %}{% endblock %}", """{% block conten
 <h4 class="m-0"><i class="bi bi-phone"></i> Sessions</h4>
 <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#startModal"><i class="bi bi-plus-lg"></i> Start New</button>
 </div>
-<div class="row">
+<div class="card p-0">
+{% if sessions %}
+<div class="table-responsive">
+<table class="table table-striped mb-0 align-middle">
+<thead><tr><th>Session</th><th>Nomor</th><th>Status</th><th>Token</th><th style="width:1%">Aksi</th></tr></thead>
+<tbody>
 {% for s in sessions %}
-<div class="col-md-6 col-lg-4 mb-3"><div class="card p-3 h-100">
-<div class="d-flex justify-content-between align-items-start">
-<div><h5 class="mb-1">{{ s.name }}</h5><small class="text-light-emphasis">{% if s.me %}{{ s.me }}{% else %}-{% endif %}</small></div>
-<span class="badge {% if s.status == 'WORKING' %}bg-success{% elif s.status in ['STOPPED','FAILED'] %}bg-danger{% else %}bg-warning{% endif %}">{{ s.status }}</span>
-</div><hr class="my-2 border-secondary"><div class="d-flex gap-2 flex-wrap">
+<tr>
+<td><strong>{{ s.name }}</strong></td>
+<td>{% if s.me and s.me.id %}{{ s.me.id }}{% elif s.me %}{{ s.me }}{% else %}-{% endif %}</td>
+<td><span class="badge {% if s.status == 'WORKING' %}bg-success{% elif s.status in ['STOPPED','FAILED'] %}bg-danger{% else %}bg-warning{% endif %}">{{ s.status }}</span></td>
+<td style="min-width:320px;">
+  <div style="display:flex;align-items:center;gap:8px;">
+    <input id="token-{{ loop.index }}" class="form-control form-control-sm" type="password" value="{{ api_key }}" readonly>
+    <button type="button" class="btn btn-outline-secondary btn-sm" title="Preview token" aria-label="Preview token" onclick="toggleToken('token-{{ loop.index }}', this)"><i class="bi bi-eye"></i></button>
+    <button type="button" class="btn btn-outline-primary btn-sm" title="Copy token" aria-label="Copy token" onclick="copyToken('token-{{ loop.index }}')"><i class="bi bi-clipboard"></i></button>
+    <form method="post" action="{{ app_root }}/me/api-key/regenerate" style="margin:0;" onsubmit="return confirm('Generate token baru? Token lama akan tidak berlaku.')">
+      <input type="hidden" name="return_to" value="index">
+      <button class="btn btn-outline-danger btn-sm" title="Generate new token" aria-label="Generate new token"><i class="bi bi-arrow-repeat"></i></button>
+    </form>
+  </div>
+</td>
+<td style="white-space:nowrap;">
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;">
+<a href="{{ app_root }}/docs?session={{ s.name|urlencode }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-journal-text"></i> Docs</a>
 {% if s.status == 'WORKING' %}
-<form method="post" action="{{ app_root }}/session/stop" onsubmit="return confirm('Stop {{ s.name }}?')"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-warning btn-sm"><i class="bi bi-stop-circle"></i> Stop</button></form>
-<form method="post" action="{{ app_root }}/session/logout" onsubmit="return confirm('Logout {{ s.name }}?')"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right"></i> Logout</button></form>
+<form method="post" action="{{ app_root }}/session/stop" onsubmit="return confirm('Stop {{ s.name }}?')" style="margin:0;"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-warning btn-sm"><i class="bi bi-stop-circle"></i> Stop</button></form>
+<form method="post" action="{{ app_root }}/session/logout" onsubmit="return confirm('Logout {{ s.name }}?')" style="margin:0;"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right"></i> Logout</button></form>
 {% elif s.status == 'SCAN_QR_CODE' %}
 <button class="btn btn-outline-info btn-sm qr-btn" data-name="{{ s.name }}"><i class="bi bi-qr-code"></i> QR</button>
+<form method="post" action="{{ app_root }}/session/stop" onsubmit="return confirm('Stop {{ s.name }}?')" style="margin:0;"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-warning btn-sm"><i class="bi bi-stop-circle"></i> Stop</button></form>
 {% elif s.status in ['STOPPED','FAILED'] %}
-<form method="post" action="{{ app_root }}/session/start"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-success btn-sm"><i class="bi bi-play-circle"></i> Start</button></form>
+<form method="post" action="{{ app_root }}/session/start" style="margin:0;"><input type="hidden" name="name" value="{{ s.name }}"><button class="btn btn-outline-success btn-sm"><i class="bi bi-play-circle"></i> Start</button></form>
 {% endif %}
-</div></div></div>
-{% else %}
-<div class="col-12"><div class="card p-5 text-center"><i class="bi bi-inbox display-6"></i><p class="mt-2">Belum ada session. Klik <strong>Start New</strong>.</p></div></div>
+</div>
+</td>
+</tr>
 {% endfor %}
+</tbody>
+</table>
+</div>
+{% else %}
+<div class="p-5 text-center"><i class="bi bi-inbox display-6"></i><p class="mt-2">Belum ada session. Klik <strong>Start New</strong>.</p></div>
+{% endif %}
 </div>
 <div class="modal fade" id="startModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content" ><form method="post" action="{{ app_root }}/session/start">
 <div class="modal-header border-secondary"><h5 class="modal-title">Start New Session</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -784,6 +970,29 @@ function copyPairingCode(code) {
   }).catch(() => {
     showToast('Gagal salin pairing code', 'danger');
   });
+}
+
+function copyToken(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  navigator.clipboard.writeText(el.value).then(() => {
+    showToast('Token berhasil disalin', 'success');
+  }).catch(() => {
+    showToast('Gagal salin token', 'danger');
+  });
+}
+
+function toggleToken(id, btn) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const nextType = el.type === 'password' ? 'text' : 'password';
+  el.type = nextType;
+  if (btn) {
+    const show = nextType === 'text';
+    btn.innerHTML = show ? '<i class="bi bi-eye-slash"></i>' : '<i class="bi bi-eye"></i>';
+    btn.title = show ? 'Hide token' : 'Preview token';
+    btn.setAttribute('aria-label', show ? 'Hide token' : 'Preview token');
+  }
 }
 
 function playConnectedFx() {
@@ -851,41 +1060,57 @@ if (AUTO_QR) {
 {% endblock %}""")
 
 DOCS_TPL = BASE.replace("{% block content %}{% endblock %}", """{% block content %}
-<h4 class="mb-3"><i class="bi bi-journal-text"></i> Dokumentasi</h4>
+<h4 class="mb-3"><i class="bi bi-journal-text"></i> Dokumentasi{% if selected_session %} — {{ selected_session }}{% endif %}</h4>
 <div class="card p-4 mb-3">
-  <h5>Panduan penggunaan dashboard</h5>
-  <details class="mt-3 mb-2"><summary class="fw-semibold" style="cursor:pointer">1. Start session baru</summary><div class="mt-2 small" style="color:#475569; line-height:1.7">Klik <strong>Start New</strong>, isi nama session, lalu submit. Setelah session dibuat, status biasanya berubah jadi <strong>SCAN_QR_CODE</strong>.</div></details>
-  <details class="mb-2"><summary class="fw-semibold" style="cursor:pointer">2. Hubungkan WhatsApp</summary><div class="mt-2 small" style="color:#475569; line-height:1.7">Klik tombol <strong>QR</strong> pada session. Scan QR dari aplikasi WhatsApp. Kalau server kasih pairing code, copy code lalu masukkan dari HP.</div></details>
-  <details class="mb-2"><summary class="fw-semibold" style="cursor:pointer">3. Arti status session</summary><div class="mt-2 small" style="color:#475569; line-height:1.7"><strong>WORKING</strong> = sudah aktif. <strong>SCAN_QR_CODE</strong> = menunggu scan. <strong>STOPPED</strong> = dihentikan. <strong>FAILED</strong> = gagal start atau gagal konek.</div></details>
-  <details><summary class="fw-semibold" style="cursor:pointer">4. Tombol aksi</summary><div class="mt-2 small" style="color:#475569; line-height:1.7"><strong>Start</strong> menyalakan session mati. <strong>Stop</strong> menghentikan session aktif. <strong>Logout</strong> memutuskan koneksi WhatsApp dari perangkat itu.</div></details>
+  <h5>Gateway per session</h5>
+  <p class="small" style="color:#475569">Setiap user punya API key sendiri. Semua request gateway dibatasi ke session miliknya. Untuk receive message, session baru akan otomatis diarahkan ke webhook dashboard ini saat di-start dari panel.</p>
+  <div class="mb-3"><label class="form-label">API Key Anda</label><input class="form-control" value="{{ api_key }}" readonly onclick="this.select()"></div>
+  <form method="post" action="{{ app_root }}/me/api-key/regenerate" class="mb-0">
+    <input type="hidden" name="session_name" value="{{ selected_session }}">
+    <button class="btn btn-outline-danger btn-sm">Generate key baru</button>
+  </form>
 </div>
+{% if selected_session %}
 <div class="card p-4 mb-3">
-  <h5>Dokumentasi API dashboard</h5>
-  <p class="small" style="color:#475569">Endpoint di bawah milik dashboard custom ini. Cocok buat integrasi UI atau polling status dari browser. Mayoritas butuh login session browser.</p>
+  <h5>Dokumentasi API session terpilih</h5>
+  <p class="small" style="color:#475569">Session aktif: <code>{{ selected_session }}</code></p>
   <div class="table-responsive">
     <table class="table table-striped mb-0 align-middle">
-      <thead><tr><th>Method</th><th>Path</th><th>Fungsi</th><th>Output</th></tr></thead>
+      <thead><tr><th>Method</th><th>URL</th><th>Fungsi</th><th>Auth</th></tr></thead>
       <tbody>
-        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root or '' }}/</code></td><td>Halaman sessions</td><td>HTML</td></tr>
-        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root }}/docs</code></td><td>Halaman dokumentasi</td><td>HTML</td></tr>
-        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root }}/users</code></td><td>Manajemen user admin</td><td>HTML</td></tr>
-        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root }}/session/qr/&lt;name&gt;</code></td><td>Ambil QR / pairing code session</td><td>JSON <code>{"qr":"data:image/..."}</code> atau <code>{"code":"123-456"}</code></td></tr>
-        <tr><td><span class="badge bg-primary">GET</span></td><td><code>https://wslab.my.id{{ app_root }}/session/status/&lt;name&gt;</code></td><td>Cek status 1 session</td><td>JSON <code>{"status":"WORKING"}</code></td></tr>
-        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/session/start</code></td><td>Start session baru / start ulang</td><td>Redirect + flash message</td></tr>
-        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/session/stop</code></td><td>Stop session aktif</td><td>Redirect + flash message</td></tr>
-        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/session/logout</code></td><td>Logout session dari WhatsApp</td><td>Redirect + flash message</td></tr>
-        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/login</code></td><td>Login user</td><td>Session cookie</td></tr>
-        <tr><td><span class="badge bg-warning">POST</span></td><td><code>https://wslab.my.id{{ app_root }}/register</code></td><td>Daftar user baru</td><td>Redirect</td></tr>
+        <tr><td><span class="badge bg-primary">GET</span></td><td><code>{{ gateway_base }}/gateway/{{ selected_session }}/status</code></td><td>Cek status session</td><td><code>X-Api-Key: {{ api_key }}</code></td></tr>
+        <tr><td><span class="badge bg-warning">POST</span></td><td><code>{{ gateway_base }}/gateway/{{ selected_session }}/send-text</code></td><td>Kirim pesan text</td><td><code>X-Api-Key: {{ api_key }}</code></td></tr>
+        <tr><td><span class="badge bg-primary">GET</span></td><td><code>{{ gateway_base }}/gateway/{{ selected_session }}/events</code></td><td>Ambil event / pesan masuk yang sudah diterima webhook</td><td><code>X-Api-Key: {{ api_key }}</code></td></tr>
+        <tr><td><span class="badge bg-primary">GET</span></td><td><code>{{ gateway_base }}/gateway/webhook/{{ selected_session }}?token={{ api_key }}</code></td><td>Webhook target internal untuk receive event session</td><td>dipakai WAHA</td></tr>
       </tbody>
     </table>
   </div>
 </div>
-<div class="card p-4">
-  <h5>Contoh alur</h5>
-  <div class="small" style="color:#475569; line-height:1.7">
-    <p><strong>Flow connect session:</strong> Start session → buka QR → scan QR / pairing code → polling <code>/session/status/&lt;name&gt;</code> sampai <code>WORKING</code>.</p>
-    <p><strong>Catatan auth:</strong> Endpoint dashboard pakai session login browser. Jadi paling gampang dipakai dari browser yang sudah login, bukan dari curl anonim.</p>
+<div class="card p-4 mb-3">
+  <h5>Contoh pakai</h5>
+  <div class="small" style="color:#475569; line-height:1.8">
+    <p><strong>Status</strong></p>
+    <pre style="white-space:pre-wrap">curl -H 'X-Api-Key: {{ api_key }}' '{{ gateway_base }}/gateway/{{ selected_session }}/status'</pre>
+    <p><strong>Kirim pesan</strong></p>
+    <pre style="white-space:pre-wrap">curl -X POST '{{ gateway_base }}/gateway/{{ selected_session }}/send-text' \
+  -H 'X-Api-Key: {{ api_key }}' \
+  -H 'Content-Type: application/json' \
+  -d '{"chatId":"62812xxxx@c.us","text":"Halo dari gateway"}'</pre>
+    <p><strong>Ambil event masuk</strong></p>
+    <pre style="white-space:pre-wrap">curl -H 'X-Api-Key: {{ api_key }}' '{{ gateway_base }}/gateway/{{ selected_session }}/events?limit=20'</pre>
   </div>
+</div>
+{% else %}
+<div class="card p-4 mb-3">
+  <h5>Pilih session dulu</h5>
+  <p class="small" style="color:#475569">Buka halaman Sessions, lalu klik tombol <strong>Docs</strong> pada session yang mau dipakai sebagai gateway.</p>
+</div>
+{% endif %}
+<div class="card p-4">
+  <h5>Panduan singkat dashboard</h5>
+  <details class="mt-3 mb-2"><summary class="fw-semibold" style="cursor:pointer">1. Start session baru</summary><div class="mt-2 small" style="color:#475569; line-height:1.7">Klik <strong>Start New</strong>, isi nama session, lalu submit. Session baru otomatis dipasang webhook ke dashboard ini untuk user yang membuatnya.</div></details>
+  <details class="mb-2"><summary class="fw-semibold" style="cursor:pointer">2. Hubungkan WhatsApp</summary><div class="mt-2 small" style="color:#475569; line-height:1.7">Klik tombol <strong>QR</strong> pada session dengan status <strong>SCAN_QR_CODE</strong>, lalu scan QR atau pakai pairing code.</div></details>
+  <details><summary class="fw-semibold" style="cursor:pointer">3. Arti status</summary><div class="mt-2 small" style="color:#475569; line-height:1.7"><strong>WORKING</strong> = aktif. <strong>SCAN_QR_CODE</strong> = menunggu scan. <strong>STOPPED</strong>/<strong>FAILED</strong> = mati atau gagal.</div></details>
 </div>
 {% endblock %}""")
 
