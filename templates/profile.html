@@ -4,7 +4,13 @@
   <div class="col-lg-5 col-md-6 col-12">
     <div class="card p-4">
       <h4 class="mb-3"><i class="bi bi-person-circle"></i> Edit Profile</h4>
-      <form method="post" action="{{ app_root }}/profile">
+      <form method="post" action="{{ app_root }}/profile" enctype="multipart/form-data">
+        <div class="mb-3 text-center">
+          {% if profile_user.avatar_path %}<img src="{{ app_root }}/{{ profile_user.avatar_path }}" alt="avatar" style="width:96px;height:96px;border-radius:999px;object-fit:cover;border:1px solid var(--line-2);margin-bottom:12px;">{% else %}<div style="width:96px;height:96px;border-radius:999px;border:1px solid var(--line-2);display:inline-flex;align-items:center;justify-content:center;margin-bottom:12px;background:#f8fafc;font-size:40px;color:var(--muted);"><i class="bi bi-person"></i></div>{% endif %}
+          <label class="form-label text-start">Foto Profile</label>
+          <input name="avatar" type="file" class="form-control" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+          <div class="text-light-emphasis mt-1" style="font-size:12px;">JPG, PNG, WEBP. Maks 2MB.</div>
+        </div>
         <div class="mb-3">
           <label class="form-label">Username</label>
           <input name="username" class="form-control" value="{{ profile_user.username }}" required>

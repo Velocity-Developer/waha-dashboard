@@ -41,7 +41,8 @@ def init_db():
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'user',
-        api_key TEXT UNIQUE
+        api_key TEXT UNIQUE,
+        avatar_path TEXT
     )"""
     )
     db.execute(
@@ -65,6 +66,8 @@ def init_db():
     cols = {row[1] for row in db.execute("PRAGMA table_info(users)").fetchall()}
     if "api_key" not in cols:
         db.execute("ALTER TABLE users ADD COLUMN api_key TEXT")
+    if "avatar_path" not in cols:
+        db.execute("ALTER TABLE users ADD COLUMN avatar_path TEXT")
     if ADMIN_PASSWORD:
         try:
             db.execute(
@@ -84,7 +87,7 @@ def current_user():
     if not session.get("user_id"):
         return None
     return get_db().execute(
-        "SELECT id, username, role, api_key FROM users WHERE id=?",
+        "SELECT id, username, role, api_key, avatar_path FROM users WHERE id=?",
         (session["user_id"],),
     ).fetchone()
 

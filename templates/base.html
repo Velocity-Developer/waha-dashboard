@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WAHA Dashboard</title>
+  <title>Wa PRO</title>
   <base href="{{ app_root }}/">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <script>
@@ -39,6 +39,14 @@
     .btn-outline-warning { background:#fffbeb; border-color:#fde68a; color:var(--warning); }
     .btn-outline-info { background:#ecfeff; border-color:#a5f3fc; color:var(--info); }
     .btn-outline-success { background:#f0fdf4; border-color:#bbf7d0; color:var(--success); }
+    .icon-btn { width:38px; min-width:38px; padding:8px; }
+    .tooltip-modern { position:relative; }
+    .tooltip-modern::after { content:attr(data-tip); position:absolute; left:50%; bottom:calc(100% + 10px); transform:translate(-50%,6px); background:rgba(15,23,42,.96); color:#fff; padding:8px 10px; border-radius:10px; font-size:12px; line-height:1; white-space:nowrap; opacity:0; pointer-events:none; transition:.16s ease; box-shadow:0 14px 30px rgba(15,23,42,.22); }
+    .tooltip-modern::before { content:''; position:absolute; left:50%; bottom:calc(100% + 4px); transform:translateX(-50%) scale(.8); border:6px solid transparent; border-top-color:rgba(15,23,42,.96); opacity:0; pointer-events:none; transition:.16s ease; }
+    .tooltip-modern:hover::after,.tooltip-modern:hover::before,.tooltip-modern:focus-visible::after,.tooltip-modern:focus-visible::before { opacity:1; transform:translate(-50%,0); }
+    .tooltip-modern:focus-visible::before { transform:translateX(-50%) scale(1); }
+    .truncate-session { display:inline-block; max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+    .brand-pill { display:inline-flex; align-items:center; padding:4px 9px; border-radius:999px; background:linear-gradient(180deg,#ef4444,#dc2626); color:#fff; font-size:11px; font-weight:800; letter-spacing:.08em; box-shadow:0 10px 24px rgba(220,38,38,.22); }
     .form-label { display:block; margin-bottom:8px; color:#334155; font-size:14px; }
     .form-control,.form-select { width:100%; background:#fff; border:1px solid rgba(148,163,184,.35); color:var(--text); border-radius:12px; padding:12px 14px; outline:0; font:inherit; }
     .form-control-sm,.form-select-sm { padding:9px 12px; font-size:14px; }
@@ -71,7 +79,7 @@
 <body>
 <nav class="navbar navbar-expand-lg mb-4">
   <div class="container">
-    <a class="navbar-brand fw-bold text-white" href="{{ app_root or '/' }}"><i class="bi bi-whatsapp"></i> WAHA</a>
+    <a class="navbar-brand fw-bold text-white" href="{{ app_root or '/' }}" style="display:inline-flex;align-items:center;gap:10px;"><i class="bi bi-whatsapp"></i> <span>Wa</span> <span class="brand-pill">PRO</span></a>
     <div class="collapse navbar-collapse show">
       <ul class="navbar-nav me-auto">
         <li class="nav-item"><a class="nav-link" href="{{ app_root or '/' }}">Sessions</a></li>
@@ -80,7 +88,7 @@
       </ul>
       {% if username %}
       <div style="display:flex;align-items:center;gap:12px;">
-        <a href="{{ app_root }}/profile" class="nav-link" style="padding:8px 12px;"><i class="bi bi-person-circle"></i> {{ username }}</a>
+        <a href="{{ app_root }}/profile" class="nav-link" style="padding:8px 12px;display:flex;align-items:center;gap:8px;">{% if nav_avatar %}<img src="{{ app_root }}/{{ nav_avatar }}" alt="avatar" style="width:28px;height:28px;border-radius:999px;object-fit:cover;border:1px solid var(--line-2);">{% else %}<i class="bi bi-person-circle"></i>{% endif %} {{ username }}</a>
         <a href="{{ app_root }}/logout" class="btn btn-outline-secondary btn-sm">Logout</a>
       </div>
       {% endif %}

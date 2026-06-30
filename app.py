@@ -4,7 +4,7 @@ from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import APP_ROOT, PORT, SECRET_KEY
-from db import close_db, init_db
+from db import close_db, current_user, init_db
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -18,7 +18,8 @@ def _close_db(_e):
 
 @app.context_processor
 def inject_globals():
-    return {"app_root": APP_ROOT}
+    user = current_user()
+    return {"app_root": APP_ROOT, "nav_avatar": user["avatar_path"] if user else None}
 
 
 init_db()

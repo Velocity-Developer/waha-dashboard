@@ -1,7 +1,11 @@
+import os
 import sqlite3
+import uuid
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
+from werkzeug.utils import secure_filename
 
+from config import AVATAR_DIR
 from db import current_user, get_db, hash_password, verify_password
 
 bp = Blueprint("auth", __name__)
@@ -72,6 +76,7 @@ def profile():
         current_password = request.form.get("current_password", "")
         new_password = request.form.get("new_password", "")
         confirm_password = request.form.get("confirm_password", "")
+        avatar = request.files.get("avatar")
         if not username:
             flash("Username wajib diisi", "danger")
             return render_template("profile.html", profile_user=user, username=session.get("username"), role=session.get("role"))
@@ -93,6 +98,23 @@ def profile():
                 return render_template("profile.html", profile_user=user, username=session.get("username"), role=session.get("role"))
             updates.append("password_hash=?")
             params.append(hash_password(new_password))
+        old_avatar_path = None
+        if avatar and avatar.filename:
+            ext = os.path.splitext(secure_filename(avatar.filename))[1].lower()
+            if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+                flash("Format avatar harus jpg, png, atau webp", "danger")
+                return render_template("profile.html", profile_user=user, username=session.get("username"), role=session.get("role"))
+            raw = avatar.read()
+            if len(raw) > 2 * 1024 * 1024:
+                flash("Ukuran avatar maksimal 2MB", "danger")
+                return render_template("profile.html", profile_user=user, username=session.get("username"), role=session.get("role"))
+            filename = f"u{user['id']}_{uuid.uuid4().hex}{ext}"
+            rel_path = f"static/uploads/avatars/{filename}"
+            with open(os.path.join(AVATAR_DIR, filename), "wb") as f:
+                f.write(raw)
+            old_avatar_path = user["avatar_path"]
+            updates.append("avatar_path=?")
+            params.append(rel_path)
         if not updates:
             flash("Tidak ada perubahan", "info")
             return redirect(url_for("auth.profile"))
@@ -103,6 +125,10 @@ def profile():
         except sqlite3.IntegrityError:
             flash("Username sudah dipakai", "danger")
             return render_template("profile.html", profile_user=user, username=session.get("username"), role=session.get("role"))
+        if old_avatar_path and old_avatar_path.startswith("static/uploads/avatars/"):
+            old_full = os.path.join(AVATAR_DIR, os.path.basename(old_avatar_path))
+            if os.path.exists(old_full):
+                os.remove(old_full)
         session["username"] = username
         flash("Profil berhasil diperbarui", "success")
         return redirect(url_for("auth.profile"))
