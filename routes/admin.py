@@ -13,7 +13,7 @@ bp = Blueprint("admin", __name__)
 @admin_required
 def users_list():
     db = get_db()
-    rows = db.execute("SELECT id, username, role FROM users ORDER BY id").fetchall()
+    rows = db.execute("SELECT id, username, role, avatar_path FROM users ORDER BY id").fetchall()
     mapped = db.execute(
         """SELECT sm.waha_session_name, u.username
         FROM sessions_map sm JOIN users u ON u.id = sm.user_id
