@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wa PRO</title>
   <base href="{{ app_root }}/">
+  <link rel="icon" type="image/png" href="{{ app_root }}/static/favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <script>
   (()=>{class TinyModal{constructor(t){this.el=t}show(){this.el.classList.add('show'),document.body.classList.add('modal-open'),this.el.style.display='block'}hide(){this.el.classList.remove('show'),this.el.style.display='none',document.body.classList.remove('modal-open')}}window.bootstrap={Modal:TinyModal};function onClick(t){const e=t.target.closest('[data-bs-toggle="modal"]');if(e){const t=document.querySelector(e.getAttribute('data-bs-target'));t&&new TinyModal(t).show();return}const n=t.target.closest('[data-bs-dismiss="modal"]');if(n){n.closest('.modal')&&new TinyModal(n.closest('.modal')).hide();return}const o=t.target.closest('[data-bs-dismiss="toast"]');o&&(o.closest('.toast')&&o.closest('.toast').remove())}document.addEventListener('click',onClick),document.querySelectorAll('.modal').forEach(t=>{t.addEventListener('click',function(t){t.target===this&&new TinyModal(this).hide()})}),document.addEventListener('keydown',t=>{if(t.key==='Escape'){const e=document.querySelector('.modal.show');e&&new TinyModal(e).hide()}}),document.querySelectorAll('.toast').forEach(t=>setTimeout(()=>t.remove(),5e3))})();
@@ -47,6 +48,18 @@
     .tooltip-modern:focus-visible::before { transform:translateX(-50%) scale(1); }
     .truncate-session { display:inline-block; max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
     .brand-pill { display:inline-flex; align-items:center; padding:4px 9px; border-radius:999px; background:linear-gradient(180deg,#ef4444,#dc2626); color:#fff; font-size:11px; font-weight:800; letter-spacing:.08em; box-shadow:0 10px 24px rgba(220,38,38,.22); }
+    .token-actions { display:flex; align-items:center; gap:4px; flex-wrap:nowrap; white-space:nowrap; }
+    .row-actions { display:flex; align-items:center; gap:4px; flex-wrap:nowrap; white-space:nowrap; }
+    .table-responsive.desktop-fit { overflow-x:visible; }
+    .table-responsive.desktop-fit .table { table-layout:auto; width:98%; }
+    .table-responsive.desktop-fit th,.table-responsive.desktop-fit td { padding:9px 10px; }
+    .table-responsive.desktop-fit td:nth-child(2) { white-space:nowrap; }
+    .table-responsive.desktop-fit th:nth-child(1),.table-responsive.desktop-fit td:nth-child(1) { width:100px; }
+    .table-responsive.desktop-fit th:nth-child(2),.table-responsive.desktop-fit td:nth-child(2) { width:170px; }
+    .table-responsive.desktop-fit th:nth-child(3),.table-responsive.desktop-fit td:nth-child(3) { width:112px; }
+    .table-responsive.desktop-fit th:nth-child(4),.table-responsive.desktop-fit td:nth-child(4) { width:180px; }
+    .table-responsive.desktop-fit th:nth-child(5),.table-responsive.desktop-fit td:nth-child(5) { width:112px; }
+    .sessions-card { overflow:hidden; }
     .form-label { display:block; margin-bottom:8px; color:#334155; font-size:14px; }
     .form-control,.form-select { width:100%; background:#fff; border:1px solid rgba(148,163,184,.35); color:var(--text); border-radius:12px; padding:12px 14px; outline:0; font:inherit; }
     .form-control-sm,.form-select-sm { padding:9px 12px; font-size:14px; }
@@ -73,7 +86,7 @@
     .toast-container { position:fixed; top:18px; right:18px; z-index:9999; width:min(380px, calc(100% - 24px)); }
     .toast { border-radius:14px; border:1px solid rgba(148,163,184,.14); margin-bottom:10px; overflow:hidden; box-shadow:0 18px 40px rgba(15,23,42,.1); }
     .toast-body { padding:14px 16px; } .text-bg-danger { background:#fff1f2; color:#9f1239; } .text-bg-success { background:#f0fdf4; color:#166534; } .text-bg-warning { background:#fffbeb; color:#92400e; } .text-bg-info { background:#ecfeff; color:#0f766e; }
-    @media (max-width:767px) { .container { width:min(100% - 24px, 1180px); } .navbar .container,.navbar-collapse.show { display:block; } .navbar-nav { margin:12px 0 0; flex-wrap:wrap; } .d-flex.justify-content-between.align-items-center.mb-3 { flex-direction:column; align-items:stretch; gap:12px; } .table th,.table td { padding:12px; } .p-4,.p-5 { padding:20px; } }
+    @media (max-width:767px) { .container { width:min(100% - 24px, 1180px); } .navbar .container,.navbar-collapse.show { display:block; } .navbar-nav { margin:12px 0 0; flex-wrap:wrap; } .d-flex.justify-content-between.align-items-center.mb-3 { flex-direction:column; align-items:stretch; gap:12px; } .table th,.table td { padding:12px; } .p-4,.p-5 { padding:20px; } .token-actions,.row-actions { gap:6px; flex-wrap:wrap; white-space:normal; } .row-actions form,.token-actions form { margin:0; } .table-responsive.desktop-fit { overflow-x:auto; } .table-responsive.desktop-fit .table { table-layout:auto; width:100%; } .table-responsive.desktop-fit td:nth-child(2) { white-space:normal; overflow-wrap:anywhere; word-break:break-word; } }
   </style>
 </head>
 <body>
