@@ -1,7 +1,8 @@
 import json
+import random
 import sqlite3
 
-from flask import Blueprint, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, session, url_for
 
 from db import get_db, hash_password
 from helpers import admin_required, waha
@@ -132,3 +133,37 @@ def sessions_assign():
     get_db().commit()
     flash(f"Session '{session_name}' di-assign ke '{row['username']}'", "success")
     return redirect(url_for("admin.users_list"))
+
+
+def _random_send_payload():
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+        return (payload.get("chatId", "") or payload.get("number", "") or "").strip(), (payload.get("text", "") or payload.get("message", "") or "").strip()
+    return request.form.get("chatId", "").strip(), request.form.get("text", "").strip()
+
+
+@bp.route("/whatsapp/send-random", methods=["POST"])
+@admin_required
+def whatsapp_send_random():
+    chat_id, text = _random_send_payload()
+    if not chat_id or not text:
+        return jsonify(ok=False, error="Nomor dan isi pesan wajib diisi"), 400
+    db = get_db()
+    sessions = [r["waha_session_name"] for r in db.execute("SELECT DISTINCT waha_session_name FROM sessions_map").fetchall()]
+    random.shuffle(sessions)
+    last_error = None
+    for session_name in sessions:
+        try:
+            st, data = waha("POST", "/api/sendText", {"session": session_name, "chatId": chat_id, "text": text})
+            if int(st) in (200, 201):
+                return jsonify(ok=True, session=session_name, status=int(st), result=json.loads(data) if isinstance(data, str) else data)
+            last_error = {"session": session_name, "status": int(st), "body": data}
+        except Exception as e:
+            last_error = {"session": session_name, "error": str(e)}
+    return jsonify(ok=False, error="Semua session gagal", last=last_error), 502
+
+
+@bp.route("/whatsapp/send-random/json", methods=["POST"])
+@admin_required
+def whatsapp_send_random_json():
+    return whatsapp_send_random()
